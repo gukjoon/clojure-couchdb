@@ -3,7 +3,7 @@
   (:use [clojure.contrib.java-utils :only [as-str]]
         [clojure.contrib.json.read :only [read-json *json-keyword-keys*]]
         [clojure.contrib.json.write :only [json-str]]
-        [clojure.http.client :only [request url-encode]]))
+        [clojure-http.client :only [request stream-request url-encode]]))
 
 (def *server* "http://localhost:5984/")
 
@@ -60,6 +60,25 @@
                    {:e (:json result)}))
       result)))
 
+(defn couch-request-stream
+  [& args]
+  (let [response (apply stream-request args)
+        result (try (assoc response :json (binding [*json-keyword-keys* true]
+                                            (read-json (apply str
+                                                              (:body-stream response)))))
+                    (catch Exception e ;; if there's an error reading the JSON, just don't make a :json key
+                      response))]
+    (if (>= (:code result) 400)
+      (kit/raise* ((condp = (:code result)
+                     404 (condp = (:reason (:json result))
+                           "Missing" DatabaseNotFound ;; as of svn rev 775577 this should be "no_db_file"
+                           "Document is missing attachment" AttachmentNotFound
+                           DocumentNotFound)
+                     409 ResourceConflict
+                     412 PreconditionFailed
+                     ServerError)
+                   {:e (:json result)}))
+      result)))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;         Utilities           ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -180,12 +199,12 @@
 
 (defn document-delete
   [database id]
-  (when-let [database (validate-dbname database)]
     (let [id (do-get-doc database id)
           rev (do-get-rev database id)]
-      (couch-request (str *server* database "/" (url-encode (as-str id)) "?rev=" rev)
-                     :delete)
-      true)))
+      (when-let [database (validate-dbname database)]
+	(couch-request (str *server* database "/" (url-encode (as-str id)) "?rev=" rev)
+		       :delete)
+	true)))
 
 (defn- revision-comparator
   [x y]
@@ -194,8 +213,8 @@
 
 (defn document-revisions
   [database id]
-  (when-let [database (validate-dbname database)]
-    (let [id (do-get-doc database id)]
+  (let [id (do-get-doc database id)]
+    (when-let [database (validate-dbname database)]
       (apply merge (map (fn [m]
                           (sorted-map-by revision-comparator (:rev m) (:status m)))
                         (:_revs_info (:json (couch-request (str *server* database "/" (url-encode (as-str id)) "?revs_info=true")))))))))
@@ -213,9 +232,9 @@
 
 (defn attachment-create
   [database document id payload content-type]
-  (when-let [database (validate-dbname database)]
     (let [document (do-get-doc database document)
           rev (do-get-rev database document)]
+      (when-let [database (validate-dbname database)]
       (couch-request (str *server* database "/" (url-encode (as-str document)) "/" (url-encode (as-str id)) "?rev=" rev)
                      :put
                      {"Content-Type" content-type}
@@ -231,11 +250,20 @@
       {:body-seq (:body-seq response)
        :content-type ((:get-header response) "content-type")})))
 
+(defn attachment-get-stream
+  "Gets attachment as stream"
+    [database document id]
+    (when-let [database (validate-dbname database)]
+      (let [document (do-get-doc database document)
+	    response (couch-request-stream (str *server* database "/" (url-encode (as-str document)) "/" (url-encode (as-str id))))]
+	{:body-stream (:body-stream response)
+	 :content-type ((:get-header response) "content-type")})))
+
 (defn attachment-delete
   [database document id]
-  (when-let [database (validate-dbname database)]
-    (let [document (do-get-doc database document)
-          rev (do-get-rev database document)]
+  (let [document (do-get-doc database document)
+	rev (do-get-rev database document)]
+    (when-let [database (validate-dbname database)]
       (couch-request (str *server* database "/" (url-encode (as-str document)) "/" (url-encode (as-str id)) "?rev=" rev)
                      :delete)
       true)))
