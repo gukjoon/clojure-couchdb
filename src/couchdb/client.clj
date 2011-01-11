@@ -1,7 +1,7 @@
 (ns couchdb.client
   (:require [clojure.contrib [error-kit :as kit]])
   (:use [clojure.contrib.java-utils :only [as-str]]
-        [clojure.contrib.json.read :only [read-json *json-keyword-keys* json-str]]
+        [clojure.contrib.json :only [read-json json-str]]
         [clojure-http.client :only [request stream-request url-encode]]))
 
 (def *server* "http://localhost:5984/")
@@ -42,9 +42,9 @@
 (defn couch-request
   [& args]
   (let [response (apply request args)
-        result (try (assoc response :json (binding [*json-keyword-keys* true]
-                                            (read-json (apply str
-                                                              (:body-seq response)))))
+        result (try (assoc response :json 
+			   (read-json (apply str
+					     (:body-seq response)) true))
                     (catch Exception e ;; if there's an error reading the JSON, just don't make a :json key
                       response))]
     (if (>= (:code result) 400)
@@ -62,9 +62,9 @@
 (defn couch-request-stream
   [& args]
   (let [response (apply stream-request args)
-        result (try (assoc response :json (binding [*json-keyword-keys* true]
-                                            (read-json (apply str
-                                                              (:body-stream response)))))
+        result (try (assoc response :json
+			   (read-json (apply str
+					     (:body-stream response)) true))
                     (catch Exception e ;; if there's an error reading the JSON, just don't make a :json key
                       response))]
     (if (>= (:code result) 400)
