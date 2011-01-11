@@ -1,8 +1,7 @@
 (ns couchdb.client
   (:require [clojure.contrib [error-kit :as kit]])
   (:use [clojure.contrib.java-utils :only [as-str]]
-        [clojure.contrib.json.read :only [read-json *json-keyword-keys*]]
-        [clojure.contrib.json.write :only [json-str]]
+        [clojure.contrib.json.read :only [read-json *json-keyword-keys* json-str]]
         [clojure-http.client :only [request stream-request url-encode]]))
 
 (def *server* "http://localhost:5984/")
